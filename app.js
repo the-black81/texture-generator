@@ -15,29 +15,55 @@ let loadedImage = null;
 let currentActiveTab = 'basecolor';
 let processedMaps = {};
 
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#e67e22'; });
-dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#2c2c2c'; });
-dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.style.borderColor = '#2c2c2c';
-    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length) handleFile(e.target.files[0]);
+// Eventos de selección de archivo seguros
+dropZone.addEventListener('click', () => {
+    fileInput.click();
 });
 
-removeImage.addEventListener('click', () => {
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.style.borderColor = '#e67e22';
+});
+
+dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.style.borderColor = '#2c2c2c';
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.style.borderColor = '#2c2c2c';
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+    }
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+removeImage.addEventListener('click', (e) => {
+    e.stopPropagation();
     loadedImage = null;
     fileInput.value = '';
     thumbnailContainer.classList.add('hidden');
     dropZone.classList.remove('hidden');
     processBtn.disabled = true;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    processedMaps = {};
 });
 
 function handleFile(file) {
-    if (!file.type.startsWith('image/')) return alert('Por favor, selecciona un archivo de imagen válido.');
+    if (!file || !file.type.startsWith('image/')) {
+        alert('Por favor, selecciona un archivo de imagen válido.');
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
         const img = new Image();
@@ -48,6 +74,9 @@ function handleFile(file) {
             thumbnailContainer.classList.remove('hidden');
             processBtn.disabled = false;
             generateMapsPreview();
+        };
+        img.onerror = () => {
+            alert('Error al cargar la imagen. Pruebe con otro archivo.');
         };
         img.src = event.target.result;
     };
@@ -68,7 +97,7 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    // Usar la resolución real o adaptada conservando proporciones
+    // Usar dimensiones reales de la imagen
     const targetWidth = loadedImage.naturalWidth || 2048;
     const targetHeight = loadedImage.naturalHeight || 2048;
 
