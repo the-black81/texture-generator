@@ -69,7 +69,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Aplicando borrado profundo de marcas de agua...';
+    loadingText.textContent = 'Limpiando marcas de agua y generando mapas PBR...';
 
     // 1. Respetar proporción original exacta
     let origWidth = loadedImage.width;
@@ -99,55 +99,37 @@ async function generateMapsPreview() {
     let imgData = ctx.getImageData(0, 0, width, height);
     let data = imgData.data;
 
-    // 2. BORRADO PROFUNDO DE MARCAS DE AGUA (Eliminación de patrones de stock 123RF)
-    // Las marcas de agua alteran localmente la luminancia en forma de sello circular/rombo.
-    // Creamos una copia temporal para analizar los gradientes limpios del entorno.
-    let tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width; tempCanvas.height = height;
-    let tempCtx = tempCanvas.getContext('2d');
-    tempCtx.putImageData(imgData, 0, 0);
-    let cleanData = tempCtx.getImageData(0, 0, width, height).data;
+    // 2. ELIMINACIÓN AGRESIVA DE MARCAS DE AGUA (Filtro de uniformidad y contraste local)
+    // Analizamos bloques para detectar y neutralizar los sellos translúcidos característicos de 123RF
+    let backupData = new Uint8ClampedArray(data);
 
-    // Detectar y neutralizar los sellos de agua mediante suavizado adaptativo en zonas de baja frecuencia con desvío de brillo
-    for (let y = 10; y < height - 10; y++) {
-        for (let x = 10; x < width - 10; x++) {
+    for (let y = 5; y < height - 5; y++) {
+        for (let x = 5; x < width - 5; x++) {
             let idx = (y * width + x) * 4;
-            let r = data[idx], g = data[idx+1], b = data[idx+2];
+            let r = backupData[idx], g = backupData[idx+1], b = backupData[idx+2];
             
-            // Analizar si el píxel pertenece a un sello translúcido (baja saturación con contraste anómalo respecto al fondo de piedra)
-            let brightness = (r * 0.299 + g * 0.587 + b * 0.114);
-            
-            // Comprobación de patrones típicos de marcas de agua (marcas circulares/texto claro superpuesto)
-            // Calculamos la desviación local respecto a un radio más amplio
-            let sampleSumR = 0, sampleSumG = 0, sampleSumB = 0, count = 0;
-            for (let dy = -8; dy <= 8; dy += 4) {
-                for (let dx = -8; dx <= 8; dx += 4) {
-                    if (dx === 0 && dy === 0) continue;
-                    let nIdx = ((y + dy) * width + (x + dx)) * 4;
-                    sampleSumR += cleanData[nIdx];
-                    sampleSumG += cleanData[nIdx+1];
-                    sampleSumB += cleanData[nIdx+2];
-                    count++;
-                }
-            }
-            let avgR = sampleSumR / count;
-            let avgG = sampleSumG / count;
-            let avgB = sampleSumB / count;
+            // Detección de patrones de marcas de agua (baja saturación con brillo diferenciado respecto al fondo)
+            let maxC = Math.max(r, g, b);
+            let minC = Math.min(r, g, b);
+            let sat = maxC - minC;
+            let lum = (r * 0.299 + g * 0.587 + b * 0.114);
 
-            // Si el píxel actual rompe drásticamente con la textura circundante de forma artificial (típico del sello de agua)
-            let diff = Math.abs(r - avgR) + Math.abs(g - avgG) + Math.abs(b - avgB);
-            if (diff > 18 && diff < 65 && brightness > 140) {
-                // Inpainting / Clonado local suave desde los bordes limpios
-                data[idx] = avgR;
-                data[idx+1] = avgG;
-                data[idx+2] = avgB;
+            // Si detectamos la firma típica del sello semitransparente
+            if (sat < 15 && (lum > 150 && lum < 235)) {
+                // Parcheo por clonación de textura limpia circundante (desplazado 30 píxeles hacia arriba/abajo)
+                let cleanIdx = ((y + 25) < height ? (y + 25) : (y - 25)) * width + (x);
+                let cIdx = cleanIdx * 4;
+                
+                data[idx] = backupData[cIdx];
+                data[idx+1] = backupData[cIdx+1];
+                data[idx+2] = backupData[cIdx+2];
             }
         }
     }
 
     // 3. NITIDEZ Y REALCE (High-Pass para rescatar la textura de las grietas)
     let sharpData = new Uint8ClampedArray(data);
-    let weight = 1.3;
+    let weight = 1.2;
     let centerWeight = 1.0 + (4 * weight);
 
     for (let y = 1; y < height - 1; y++) {
