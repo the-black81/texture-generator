@@ -1,6 +1,5 @@
 const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
-const dropContent = document.getElementById('dropContent');
 const thumbnailContainer = document.getElementById('thumbnailContainer');
 const thumbPreview = document.getElementById('thumbPreview');
 const removeImage = document.getElementById('removeImage');
@@ -15,7 +14,7 @@ let loadedImage = null;
 let currentActiveTab = 'basecolor';
 let processedMaps = {};
 
-// Eventos de selección de archivo seguros
+// Forzar apertura del selector al hacer clic en la zona
 dropZone.addEventListener('click', () => {
     fileInput.click();
 });
@@ -76,7 +75,7 @@ function handleFile(file) {
             generateMapsPreview();
         };
         img.onerror = () => {
-            alert('Error al cargar la imagen. Pruebe con otro archivo.');
+            alert('Error al cargar la imagen.');
         };
         img.src = event.target.result;
     };
@@ -97,7 +96,6 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    // Usar dimensiones reales de la imagen
     const targetWidth = loadedImage.naturalWidth || 2048;
     const targetHeight = loadedImage.naturalHeight || 2048;
 
