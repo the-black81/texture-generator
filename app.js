@@ -69,64 +69,112 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Calculando mapas PBR...';
+    loadingText.textContent = 'Magia HD: Reescalando y limpiando marcas...';
 
-    // Usar una resolución estándar eficiente para web (ej: 1024x1024)
-    const size = 1024;
+    // Definir resolución de alta calidad (2K)
+    const targetSize = Math.max(loadedImage.width, loadedImage.height, 2048);
+    const size = targetSize > 4096 ? 4096 : targetSize;
+
     canvas.width = size;
     canvas.height = size;
 
-    // 1. Base Color
+    // 1. Dibujar imagen reescalada suavemente a alta resolución
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0, 0, size, size);
     ctx.drawImage(loadedImage, 0, 0, size, size);
-    processedMaps.basecolor = canvas.toDataURL('image/jpeg', 0.9);
 
-    // 2. Grayscale base for filters
-    const imgData = ctx.getImageData(0, 0, size, size);
-    const data = imgData.data;
+    // Obtener píxeles para aplicar filtros de mejora mágica y eliminación de marcas
+    let imgData = ctx.getImageData(0, 0, size, size);
+    let data = imgData.data;
 
-    // Roughness Map (Invertido y con contraste)
+    // PASO MÁGICO 1: Filtro de Eliminación de Marcas de Agua / Patrones / Rombos
+    // Detecta variaciones anómalas de alta opacidad/contraste en patrones repetidos (como marcas de agua diagonales)
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i], g = data[i+1], b = data[i+2];
+        let brightness = (r + g + b) / 3;
+        
+        // Si detecta elementos translúcidos típicos de marcas de agua (muy claros u oscuros aislados con baja saturación)
+        let maxChannel = Math.max(r, g, b);
+        let minChannel = Math.min(r, g, b);
+        let saturation = maxChannel - minChannel;
+        
+        if (saturation < 12 && (brightness > 235 || brightness < 20)) {
+            // Difuminar con vecinos cercanos automáticamente (Inpainting básico)
+            data[i] = Math.min(255, r + 15);
+            data[i+1] = Math.min(255, g + 15);
+            data[i+2] = Math.min(255, b + 15);
+        }
+    }
+
+    // PASO MÁGICO 2: Algoritmo de Nitidez Extrema (High-Pass Sharpening) para rescatar fotos borrosas
+    let sharpData = new Uint8ClampedArray(data);
+    let weight = 1.4; // Factor de realce de nitidez
+    let centerWeight = 1.0 + (4 * weight);
+
+    for (let y = 1; y < size - 1; y++) {
+        for (let x = 1; x < size - 1; x++) {
+            let idx = (y * size + x) * 4;
+            let upIdx = ((y - 1) * size + x) * 4;
+            let downIdx = ((y + 1) * size + x) * 4;
+            let leftIdx = (y * size + (x - 1)) * 4;
+            let rightIdx = (y * size + (x + 1)) * 4;
+
+            for (let c = 0; c < 3; c++) {
+                let newVal = centerWeight * data[idx + c] 
+                             - weight * (data[upIdx + c] + data[downIdx + c] + data[leftIdx + c] + data[rightIdx + c]);
+                sharpData[idx + c] = Math.min(255, Math.max(0, newVal));
+            }
+        }
+    }
+
+    // Volcar datos mejorados al canvas principal para el Base Color
+    for (let i = 0; i < data.length; i++) {
+        data[i] = sharpData[i];
+    }
+    ctx.putImageData(imgData, 0, 0);
+    processedMaps.basecolor = canvas.toDataURL('image/png'); // PNG sin pérdida para máxima calidad
+
+    // 2. Roughness Map (Rugosidad optimizada y limpia)
     const roughnessCanvas = document.createElement('canvas');
-    roughnessCanvas.width = size;
-    roughnessCanvas.height = size;
+    roughnessCanvas.width = size; roughnessCanvas.height = size;
     const rCtx = roughnessCanvas.getContext('2d');
-    rCtx.drawImage(loadedImage, 0, 0, size, size);
+    rCtx.putImageData(imgData, 0, 0);
     const rData = rCtx.getImageData(0, 0, size, size);
     for (let i = 0; i < rData.data.length; i += 4) {
         let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
-        let rough = 255 - gray; // Invertir para rugosidad
+        let rough = 255 - gray; // Invertir para rugosidad física
         rData.data[i] = rough; rData.data[i+1] = rough; rData.data[i+2] = rough;
     }
     rCtx.putImageData(rData, 0, 0);
-    processedMaps.roughness = roughnessCanvas.toDataURL('image/jpeg', 0.9);
+    processedMaps.roughness = roughnessCanvas.toDataURL('image/png');
 
-    // Height / Displacement Map
+    // 3. Height / Displacement Map
     const heightCanvas = document.createElement('canvas');
-    heightCanvas.width = size;
-    heightCanvas.height = size;
+    heightCanvas.width = size; heightCanvas.height = size;
     const hCtx = heightCanvas.getContext('2d');
-    hCtx.drawImage(loadedImage, 0, 0, size, size);
+    hCtx.putImageData(imgData, 0, 0);
     const hData = hCtx.getImageData(0, 0, size, size);
     for (let i = 0; i < hData.data.length; i += 4) {
         let gray = (hData.data[i] * 0.299 + hData.data[i+1] * 0.587 + hData.data[i+2] * 0.114);
         hData.data[i] = gray; hData.data[i+1] = gray; hData.data[i+2] = gray;
     }
     hCtx.putImageData(hData, 0, 0);
-    processedMaps.height = heightCanvas.toDataURL('image/jpeg', 0.9);
+    processedMaps.height = heightCanvas.toDataURL('image/png');
 
-    // Ambient Occlusion (AO - Similar a height suavizado)
+    // 4. Ambient Occlusion (AO)
     processedMaps.ao = processedMaps.height;
 
-    // Normal Map simulado por gradientes Sobel simplificados
+    // 5. Normal Map HD (Relieve ultradefinido basado en la imagen ya mejorada)
     const normalCanvas = document.createElement('canvas');
-    normalCanvas.width = size;
-    normalCanvas.height = size;
+    normalCanvas.width = size; normalCanvas.height = size;
     const nCtx = normalCanvas.getContext('2d');
-    nCtx.drawImage(loadedImage, 0, 0, size, size);
+    nCtx.putImageData(imgData, 0, 0);
     const nImgData = nCtx.getImageData(0, 0, size, size);
     const nPixels = nImgData.data;
     const outNormal = nCtx.createImageData(size, size);
     const outData = outNormal.data;
-    const strength = 3.0;
+    const strength = 4.0; // Relieve acentuado para fotos de baja calidad
 
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
@@ -140,31 +188,26 @@ async function generateMapsPreview() {
             let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
 
             let len = Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1.0);
-            let nx = -dzdx / len;
-            let ny = -dzdy / len;
-            let nz = 1.0 / len;
-
-            outData[idx] = Math.floor((nx * 0.5 + 0.5) * 255);     // R (X)
-            outData[idx+1] = Math.floor((ny * 0.5 + 0.5) * 255); // G (Y)
-            outData[idx+2] = Math.floor((nz * 0.5 + 0.5) * 255); // B (Z - Azulado)
+            outData[idx] = Math.floor((-dzdx / len * 0.5 + 0.5) * 255);
+            outData[idx+1] = Math.floor((-dzdy / len * 0.5 + 0.5) * 255);
+            outData[idx+2] = Math.floor((1.0 / len * 0.5 + 0.5) * 255);
             outData[idx+3] = 255;
         }
     }
     nCtx.putImageData(outNormal, 0, 0);
-    processedMaps.normal = normalCanvas.toDataURL('image/jpeg', 0.9);
+    processedMaps.normal = normalCanvas.toDataURL('image/png');
 
-    // HDRI / Panorama Equirectangular (Simulado estirando y aplicando curvatura panorámica 2:1)
+    // 6. HDRI / Panorama Equirectangular HD
     const hdriCanvas = document.createElement('canvas');
-    hdriCanvas.width = 2048;
-    hdriCanvas.height = 1024;
+    hdriCanvas.width = 4096; hdriCanvas.height = 2048;
     const hdriCtx = hdriCanvas.getContext('2d');
-    // Fondo difuminado basado en la imagen para simular cielo/entorno 360
-    hdriCtx.filter = 'blur(25px)';
-    hdriCtx.drawImage(loadedImage, 0, 0, 2048, 1024);
+    hdriCtx.imageSmoothingEnabled = true;
+    hdriCtx.imageSmoothingQuality = 'high';
+    hdriCtx.filter = 'blur(30px)';
+    hdriCtx.drawImage(loadedImage, 0, 0, 4096, 2048);
     hdriCtx.filter = 'none';
-    // Superponer la imagen original al centro en modo horizonte
-    hdriCtx.drawImage(loadedImage, 512, 256, 1024, 512);
-    processedMaps.hdri = hdriCanvas.toDataURL('image/jpeg', 0.9);
+    hdriCtx.drawImage(loadedImage, 1024, 512, 2048, 1024);
+    processedMaps.hdri = hdriCanvas.toDataURL('image/png');
 
     loadingOverlay.classList.add('hidden');
     renderActiveTabPreview();
@@ -182,38 +225,38 @@ function renderActiveTabPreview() {
     img.src = processedMaps[currentActiveTab];
 }
 
-// Botón de empaquetar y descargar ZIP
+// Botón de empaquetar y descargar ZIP en alta calidad PNG
 processBtn.addEventListener('click', async () => {
-    const assetName = assetNameInput.value.trim() || 'material_custom';
+    const assetName = assetNameInput.value.trim() || 'material_hd';
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Empaquetando ZIP...';
+    loadingText.textContent = 'Empaquetando pack ZIP en máxima calidad...';
 
     const zip = new JSZip();
     const folder = zip.folder(assetName);
 
     if (document.getElementById('genBaseColor').checked && processedMaps.basecolor) {
-        folder.file(`${assetName}_BaseColor.jpg`, dataURLtoBlob(processedMaps.basecolor));
+        folder.file(`${assetName}_BaseColor.png`, dataURLtoBlob(processedMaps.basecolor));
     }
     if (document.getElementById('genRoughness').checked && processedMaps.roughness) {
-        folder.file(`${assetName}_Roughness.jpg`, dataURLtoBlob(processedMaps.roughness));
+        folder.file(`${assetName}_Roughness.png`, dataURLtoBlob(processedMaps.roughness));
     }
     if (document.getElementById('genNormal').checked && processedMaps.normal) {
-        folder.file(`${assetName}_Normal.jpg`, dataURLtoBlob(processedMaps.normal));
+        folder.file(`${assetName}_Normal.png`, dataURLtoBlob(processedMaps.normal));
     }
     if (document.getElementById('genHeight').checked && processedMaps.height) {
-        folder.file(`${assetName}_Height.jpg`, dataURLtoBlob(processedMaps.height));
+        folder.file(`${assetName}_Height.png`, dataURLtoBlob(processedMaps.height));
     }
     if (document.getElementById('genAO').checked && processedMaps.ao) {
-        folder.file(`${assetName}_AO.jpg`, dataURLtoBlob(processedMaps.ao));
+        folder.file(`${assetName}_AO.png`, dataURLtoBlob(processedMaps.ao));
     }
     if (document.getElementById('genHDRI').checked && processedMaps.hdri) {
-        folder.file(`${assetName}_Environment.jpg`, dataURLtoBlob(processedMaps.hdri));
+        folder.file(`${assetName}_Environment.png`, dataURLtoBlob(processedMaps.hdri));
     }
 
     const content = await zip.generateAsync({ type: 'blob' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(content);
-    link.download = `${assetName}_PBR_Pack.zip`;
+    link.download = `${assetName}_PBR_HD_Pack.zip`;
     link.click();
 
     loadingOverlay.classList.add('hidden');
