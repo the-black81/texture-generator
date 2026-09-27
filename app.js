@@ -69,7 +69,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Limpiando marcas de agua y generando mapas PBR...';
+    loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
     // 1. Respetar proporción original exacta
     let origWidth = loadedImage.width;
@@ -99,30 +99,23 @@ async function generateMapsPreview() {
     let imgData = ctx.getImageData(0, 0, width, height);
     let data = imgData.data;
 
-    // 2. ELIMINACIÓN AGRESIVA DE MARCAS DE AGUA (Filtro de uniformidad y contraste local)
-    // Analizamos bloques para detectar y neutralizar los sellos translúcidos característicos de 123RF
+    // 2. ELIMINACIÓN DE MARCAS DE AGUA POR MATRIZ DE FRECUENCIA LOCAL
     let backupData = new Uint8ClampedArray(data);
 
-    for (let y = 5; y < height - 5; y++) {
-        for (let x = 5; x < width - 5; x++) {
+    for (let y = 10; y < height - 10; y++) {
+        for (let x = 10; x < width - 10; x++) {
             let idx = (y * width + x) * 4;
             let r = backupData[idx], g = backupData[idx+1], b = backupData[idx+2];
             
-            // Detección de patrones de marcas de agua (baja saturación con brillo diferenciado respecto al fondo)
-            let maxC = Math.max(r, g, b);
-            let minC = Math.min(r, g, b);
-            let sat = maxC - minC;
             let lum = (r * 0.299 + g * 0.587 + b * 0.114);
-
-            // Si detectamos la firma típica del sello semitransparente
-            if (sat < 15 && (lum > 150 && lum < 235)) {
-                // Parcheo por clonación de textura limpia circundante (desplazado 30 píxeles hacia arriba/abajo)
-                let cleanIdx = ((y + 25) < height ? (y + 25) : (y - 25)) * width + (x);
-                let cIdx = cleanIdx * 4;
+            
+            if (lum > 140 && lum < 240) {
+                let sampleX = (x + 120 < width) ? x + 120 : x - 120;
+                let sampleIdx = (y * width + sampleX) * 4;
                 
-                data[idx] = backupData[cIdx];
-                data[idx+1] = backupData[cIdx+1];
-                data[idx+2] = backupData[cIdx+2];
+                data[idx] = backupData[sampleIdx];
+                data[idx+1] = backupData[sampleIdx+1];
+                data[idx+2] = backupData[sampleIdx+2];
             }
         }
     }
