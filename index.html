@@ -440,7 +440,7 @@
         async function generateMapsPreview() {
             if (!loadedImage) return;
             loadingOverlay.classList.remove('hidden');
-            loadingText.textContent = 'Generando mapas PBR independientes (Height y AO optimizados)...';
+            loadingText.textContent = 'Generando mapas PBR mejorados (Normal & Roughness ajustados)...';
 
             const size = 2048;
             canvas.width = size;
@@ -474,7 +474,7 @@
             let imgData = ctx.getImageData(0, 0, size, size);
             processedMaps.basecolor = canvas.toDataURL('image/png');
 
-            // --- ROUGHNESS ---
+            // --- ROUGHNESS (Corregido: limpio, con fondo gris claro uniforme y cantos definidos tipo muestra) ---
             const rCanvas = document.createElement('canvas');
             rCanvas.width = size; rCanvas.height = size;
             const rCtx = rCanvas.getContext('2d');
@@ -482,14 +482,15 @@
             let rData = rCtx.getImageData(0, 0, size, size);
             for (let i = 0; i < rData.data.length; i += 4) {
                 let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
+                // Invertir y remapear niveles para buscar el tono claro estructurado de la muestra de referencia
                 let rough = 255 - gray;
-                rough = Math.min(255, Math.max(0, (rough - 128) * 1.4 + 128));
+                rough = Math.min(255, Math.max(0, (rough - 80) * 1.6 + 210)); 
                 rData.data[i] = rough; rData.data[i+1] = rough; rData.data[i+2] = rough;
             }
             rCtx.putImageData(rData, 0, 0);
             processedMaps.roughness = rCanvas.toDataURL('image/png');
 
-            // --- HEIGHT MAP (Independiente: mapa de relieve general con buen contraste de tonos medios) ---
+            // --- HEIGHT MAP ---
             const hCanvas = document.createElement('canvas');
             hCanvas.width = size; hCanvas.height = size;
             const hCtx = hCanvas.getContext('2d');
@@ -503,7 +504,7 @@
             hCtx.putImageData(hData, 0, 0);
             processedMaps.height = hCanvas.toDataURL('image/png');
 
-            // --- AMBIENT OCCLUSION (AO) (Independiente: fondo muy luminoso y oquedades oscuras contrastadas tipo muestra) ---
+            // --- AMBIENT OCCLUSION (AO) ---
             const aoCanvas = document.createElement('canvas');
             aoCanvas.width = size; aoCanvas.height = size;
             const aoCtx = aoCanvas.getContext('2d');
@@ -511,7 +512,6 @@
             let aoData = aoCtx.getImageData(0, 0, size, size);
             for (let i = 0; i < aoData.data.length; i += 4) {
                 let gray = (aoData.data[i] * 0.299 + aoData.data[i+1] * 0.587 + aoData.data[i+2] * 0.114);
-                // Hacer el fondo mayormente blanco/claro y hundir drásticamente los puntos oscuros
                 gray = Math.pow(gray / 255.0, 0.7) * 255.0; 
                 gray = Math.min(255, Math.max(0, (gray - 100) * 1.8 + 140));
                 aoData.data[i] = gray; aoData.data[i+1] = gray; aoData.data[i+2] = gray;
@@ -519,23 +519,27 @@
             aoCtx.putImageData(aoData, 0, 0);
             processedMaps.ao = aoCanvas.toDataURL('image/png');
 
-            // --- NORMAL MAP ---
+            // --- NORMAL MAP (Corregido: alto contraste, relieve agresivo y colores vivos estilo muestra) ---
             const nCanvas = document.createElement('canvas');
             nCanvas.width = size; nCanvas.height = size;
             const nCtx = nCanvas.getContext('2d');
-            nCtx.putImageData(imgData, 0, 0);
+            
+            nCtx.filter = 'contrast(190%) brightness(105%)';
+            nCtx.drawImage(loadedImage, 0, 0, size, size);
+            nCtx.filter = 'none';
+
             const nPixels = nCtx.getImageData(0, 0, size, size).data;
             const outNormal = nCtx.createImageData(size, size);
             const outData = outNormal.data;
-            const strength = 6.0;
+            const strength = 32.0; 
 
             for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
                     let idx = (y * size + x) * 4;
-                    let xLeft = (x > 0 ? (y * size + (x - 1)) : idx) * 4;
-                    let xRight = (x < size - 1 ? (y * size + (x + 1)) : idx) * 4;
-                    let yUp = (y > 0 ? ((y - 1) * size + x) : idx) * 4;
-                    let yDown = (y < size - 1 ? ((y + 1) * size + x) : idx) * 4;
+                    let xLeft = (x > 1 ? (y * size + (x - 2)) : idx) * 4;
+                    let xRight = (x < size - 2 ? (y * size + (x + 2)) : idx) * 4;
+                    let yUp = (y > 1 ? ((y - 2) * size + x) : idx) * 4;
+                    let yDown = (y < size - 2 ? ((y + 2) * size + x) : idx) * 4;
 
                     let dzdx = (nPixels[xRight] - nPixels[xLeft]) / 255.0 * strength;
                     let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
