@@ -71,47 +71,45 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    // 1. Respetar proporción original exacta
+    // 1. GARANTIZAR PROPORCIÓN CUADRADA EXACTA (PBR estándar 1:1)
     let origWidth = loadedImage.width;
     let origHeight = loadedImage.height;
-    let maxDimension = 2048;
-    let width = origWidth;
-    let height = origHeight;
+    let targetSize = Math.min(Math.max(origWidth, origHeight), 2048);
+    if (targetSize > 2048) targetSize = 2048;
 
-    if (width > maxDimension || height > maxDimension) {
-        if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-        } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-        }
-    }
-
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = targetSize;
+    canvas.height = targetSize;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(loadedImage, 0, 0, width, height);
+    ctx.clearRect(0, 0, targetSize, targetSize);
 
-    let imgData = ctx.getImageData(0, 0, width, height);
+    // Si la imagen no es cuadrada, realizamos un recorte central automático para adaptarla sin deformar
+    let sourceX = 0, sourceY = 0, sourceWidth = origWidth, sourceHeight = origHeight;
+    if (origWidth > origHeight) {
+        sourceWidth = origHeight;
+        sourceX = (origWidth - origHeight) / 2;
+    } else if (origHeight > origWidth) {
+        sourceHeight = origWidth;
+        sourceY = (origHeight - origWidth) / 2;
+    }
+
+    ctx.drawImage(loadedImage, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetSize, targetSize);
+
+    let imgData = ctx.getImageData(0, 0, targetSize, targetSize);
     let data = imgData.data;
 
-    // 2. ELIMINACIÓN DE MARCAS DE AGUA POR MATRIZ DE FRECUENCIA LOCAL
+    // 2. FILTRADO Y LIMPIEZA DE MARCAS DE AGUA POR FRECUENCIA
     let backupData = new Uint8ClampedArray(data);
-
-    for (let y = 10; y < height - 10; y++) {
-        for (let x = 10; x < width - 10; x++) {
-            let idx = (y * width + x) * 4;
+    for (let y = 10; y < targetSize - 10; y++) {
+        for (let x = 10; x < targetSize - 10; x++) {
+            let idx = (y * targetSize + x) * 4;
             let r = backupData[idx], g = backupData[idx+1], b = backupData[idx+2];
-            
             let lum = (r * 0.299 + g * 0.587 + b * 0.114);
             
             if (lum > 140 && lum < 240) {
-                let sampleX = (x + 120 < width) ? x + 120 : x - 120;
-                let sampleIdx = (y * width + sampleX) * 4;
+                let sampleX = (x + 120 < targetSize) ? x + 120 : x - 120;
+                let sampleIdx = (y * targetSize + sampleX) * 4;
                 
                 data[idx] = backupData[sampleIdx];
                 data[idx+1] = backupData[sampleIdx+1];
@@ -120,18 +118,18 @@ async function generateMapsPreview() {
         }
     }
 
-    // 3. NITIDEZ Y REALCE (High-Pass para rescatar la textura de las grietas)
+    // 3. NITIDEZ Y REALCE (High-Pass para texturas)
     let sharpData = new Uint8ClampedArray(data);
     let weight = 1.2;
     let centerWeight = 1.0 + (4 * weight);
 
-    for (let y = 1; y < height - 1; y++) {
-        for (let x = 1; x < width - 1; x++) {
-            let idx = (y * width + x) * 4;
-            let upIdx = ((y - 1) * width + x) * 4;
-            let downIdx = ((y + 1) * width + x) * 4;
-            let leftIdx = (y * width + (x - 1)) * 4;
-            let rightIdx = (y * width + (x + 1)) * 4;
+    for (let y = 1; y < targetSize - 1; y++) {
+        for (let x = 1; x < targetSize - 1; x++) {
+            let idx = (y * targetSize + x) * 4;
+            let upIdx = ((y - 1) * targetSize + x) * 4;
+            let downIdx = ((y + 1) * targetSize + x) * 4;
+            let leftIdx = (y * targetSize + (x - 1)) * 4;
+            let rightIdx = (y * targetSize + (x + 1)) * 4;
 
             for (let c = 0; c < 3; c++) {
                 let newVal = centerWeight * data[idx + c] 
@@ -149,10 +147,10 @@ async function generateMapsPreview() {
 
     // 4. Roughness Map
     const rCanvas = document.createElement('canvas');
-    rCanvas.width = width; rCanvas.height = height;
+    rCanvas.width = targetSize; rCanvas.height = targetSize;
     const rCtx = rCanvas.getContext('2d');
     rCtx.putImageData(imgData, 0, 0);
-    const rData = rCtx.getImageData(0, 0, width, height);
+    const rData = rCtx.getImageData(0, 0, targetSize, targetSize);
     for (let i = 0; i < rData.data.length; i += 4) {
         let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
         let rough = 255 - gray;
@@ -163,10 +161,10 @@ async function generateMapsPreview() {
 
     // 5. Height / Displacement Map
     const hCanvas = document.createElement('canvas');
-    hCanvas.width = width; hCanvas.height = height;
+    hCanvas.width = targetSize; hCanvas.height = targetSize;
     const hCtx = hCanvas.getContext('2d');
     hCtx.putImageData(imgData, 0, 0);
-    const hData = hCtx.getImageData(0, 0, width, height);
+    const hData = hCtx.getImageData(0, 0, targetSize, targetSize);
     for (let i = 0; i < hData.data.length; i += 4) {
         let gray = (hData.data[i] * 0.299 + hData.data[i+1] * 0.587 + hData.data[i+2] * 0.114);
         hData.data[i] = gray; hData.data[i+1] = gray; hData.data[i+2] = gray;
@@ -179,21 +177,21 @@ async function generateMapsPreview() {
 
     // 7. Normal Map HD
     const nCanvas = document.createElement('canvas');
-    nCanvas.width = width; nCanvas.height = height;
+    nCanvas.width = targetSize; nCanvas.height = targetSize;
     const nCtx = nCanvas.getContext('2d');
     nCtx.putImageData(imgData, 0, 0);
-    const nPixels = nCtx.getImageData(0, 0, width, height).data;
-    const outNormal = nCtx.createImageData(width, height);
+    const nPixels = nCtx.getImageData(0, 0, targetSize, targetSize).data;
+    const outNormal = nCtx.createImageData(targetSize, targetSize);
     const outData = outNormal.data;
     const strength = 3.5;
 
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            let idx = (y * width + x) * 4;
-            let xLeft = (x > 0 ? (y * width + (x - 1)) : idx) * 4;
-            let xRight = (x < width - 1 ? (y * width + (x + 1)) : idx) * 4;
-            let yUp = (y > 0 ? ((y - 1) * width + x) : idx) * 4;
-            let yDown = (y < height - 1 ? ((y + 1) * width + x) : idx) * 4;
+    for (let y = 0; y < targetSize; y++) {
+        for (let x = 0; x < targetSize; x++) {
+            let idx = (y * targetSize + x) * 4;
+            let xLeft = (x > 0 ? (y * targetSize + (x - 1)) : idx) * 4;
+            let xRight = (x < targetSize - 1 ? (y * targetSize + (x + 1)) : idx) * 4;
+            let yUp = (y > 0 ? ((y - 1) * targetSize + x) : idx) * 4;
+            let yDown = (y < targetSize - 1 ? ((y + 1) * targetSize + x) : idx) * 4;
 
             let dzdx = (nPixels[xRight] - nPixels[xLeft]) / 255.0 * strength;
             let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
