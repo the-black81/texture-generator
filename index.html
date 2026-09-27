@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture & HDRI Generator Studio</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Librería JSZip para generar el archivo ZIP en el navegador -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Panel de Control / Configuración -->
+        <header>
+            <h1>Texture & HDRI Generator</h1>
+            <p>Convierte cualquier imagen en un pack PBR completo y un entorno HDRI para Blender.</p>
+        </header>
+
+        <main class="workspace">
+            <!-- Columna Izquierda: Controles -->
+            <section class="control-panel">
+                <div class="input-group">
+                    <label for="assetName">Nombre del Asset / Material:</label>
+                    <input type="text" id="assetName" placeholder="Ej: madera_oscura_01" value="material_custom_01">
+                </div>
+
+                <div class="drop-zone" id="dropZone">
+                    <input type="file" id="fileInput" accept="image/*" hidden>
+                    <div class="drop-content" id="dropContent">
+                        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                        <span>Arrastra tu foto aquí o <strong>haz clic para buscar</strong></span>
+                        <small>Formatos recomendados: JPG, PNG (Texturas seamless o fotos frontales)</small>
+                    </div>
+                    <div class="preview-container hidden" id="previewContainer">
+                        <img id="imagePreview" alt="Vista previa">
+                        <button id="removeImage" title="Cambiar imagen">×</button>
+                    </div>
+                </div>
+
+                <div class="options-group">
+                    <h3>Generar Mapas PBR</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="genBaseColor" checked> Base Color (Albedo)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="genRoughness" checked> Roughness (Rugosidad)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="genNormal" checked> Normal Map (Relieve)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="genHeight" checked> Height / Displacement</label>
+                    <label class="checkbox-label"><input type="checkbox" id="genAO" checked> Ambient Occlusion</label>
+                </div>
+
+                <div class="options-group">
+                    <h3>Entorno y Fondo</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="genHDRI" checked> Generar HDRI / Panorama (Equirectangular)</label>
+                </div>
+
+                <button id="processBtn" class="primary-btn" disabled>Generar y Descargar ZIP</button>
+            </section>
+
+            <!-- Columna Derecha: Vista Previa en tiempo real -->
+            <section class="preview-panel">
+                <h2>Previsualización de Mapas</h2>
+                <div class="tabs">
+                    <button class="tab-btn active" data-map="basecolor">Base Color</button>
+                    <button class="tab-btn" data-map="roughness">Roughness</button>
+                    <button class="tab-btn" data-map="normal">Normal</button>
+                    <button class="tab-btn" data-map="height">Height</button>
+                    <button class="tab-btn" data-map="ao">AO</button>
+                    <button class="tab-btn" data-map="hdri">HDRI Panorama</button>
+                </div>
+                <div class="canvas-viewer">
+                    <canvas id="renderCanvas"></canvas>
+                    <div id="loadingOverlay" class="hidden">
+                        <div class="spinner"></div>
+                        <span id="loadingText">Procesando texturas...</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
