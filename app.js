@@ -72,11 +72,8 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    // 1. GARANTIZAR PROPORCIÓN CUADRADA EXACTA 1:1 (Máximo 2048px)
-    let origWidth = loadedImage.width;
-    let origHeight = loadedImage.height;
-    let targetSize = Math.min(Math.max(origWidth, origHeight), 2048);
-
+    // 1. FIJAR EL LIENZO SIEMPRE CUADRADO 1:1 (2048x2048)
+    const targetSize = 2048;
     canvas.width = targetSize;
     canvas.height = targetSize;
 
@@ -84,7 +81,10 @@ async function generateMapsPreview() {
     ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, targetSize, targetSize);
 
-    // Recorte central automático si la imagen original no es cuadrada
+    let origWidth = loadedImage.width;
+    let origHeight = loadedImage.height;
+
+    // RECORTE CENTRAL INTELIGENTE: Adapta la imagen rectangular a cuadrado sin estirar ni distorsionar
     let sourceX = 0, sourceY = 0, sourceWidth = origWidth, sourceHeight = origHeight;
     if (origWidth > origHeight) {
         sourceWidth = origHeight;
@@ -206,7 +206,7 @@ async function generateMapsPreview() {
     nCtx.putImageData(outNormal, 0, 0);
     processedMaps.normal = nCanvas.toDataURL('image/png');
 
-    // 8. HDRI Panorama
+    // 8. HDRI Panorama (Mantiene formato 2:1 panorámico para entorno)
     const hdriCanvas = document.createElement('canvas');
     hdriCanvas.width = 4096; hdriCanvas.height = 2048;
     const hdriCtx = hdriCanvas.getContext('2d');
@@ -226,10 +226,17 @@ function renderActiveTabPreview() {
     if (!processedMaps[currentActiveTab]) return;
     const img = new Image();
     img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
+        // BLINDAJE: El canvas web se mantiene siempre a 2048x2048 cuadrados
+        canvas.width = 2048;
+        canvas.height = 2048;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
+        
+        // Si es la pestaña HDRI, se centra respetando su proporción panorámica, el resto cuadrado perfecto
+        if (currentActiveTab === 'hdri') {
+            ctx.drawImage(img, 0, 512, 2048, 1024);
+        } else {
+            ctx.drawImage(img, 0, 0, 2048, 2048);
+        }
     };
     img.src = processedMaps[currentActiveTab];
 }
