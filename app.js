@@ -1,7 +1,8 @@
 const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
 const dropContent = document.getElementById('dropContent');
-const previewContainer = document.getElementById('previewContainer');
+const thumbnailContainer = document.getElementById('thumbnailContainer');
+const thumbPreview = document.getElementById('thumbPreview');
 const removeImage = document.getElementById('removeImage');
 const processBtn = document.getElementById('processBtn');
 const assetNameInput = document.getElementById('assetName');
@@ -26,12 +27,11 @@ fileInput.addEventListener('change', (e) => {
     if (e.target.files.length) handleFile(e.target.files[0]);
 });
 
-removeImage.addEventListener('click', (e) => {
-    e.stopPropagation();
+removeImage.addEventListener('click', () => {
     loadedImage = null;
     fileInput.value = '';
-    previewContainer.classList.add('hidden');
-    dropContent.classList.remove('hidden');
+    thumbnailContainer.classList.add('hidden');
+    dropZone.classList.remove('hidden');
     processBtn.disabled = true;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
@@ -43,8 +43,9 @@ function handleFile(file) {
         const img = new Image();
         img.onload = () => {
             loadedImage = img;
-            dropContent.classList.add('hidden');
-            previewContainer.classList.remove('hidden');
+            thumbPreview.src = event.target.result;
+            dropZone.classList.add('hidden');
+            thumbnailContainer.classList.remove('hidden');
             processBtn.disabled = false;
             generateMapsPreview();
         };
@@ -55,10 +56,7 @@ function handleFile(file) {
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-        if(e.target.id === 'removeImage') return;
-        document.querySelectorAll('.tab-btn').forEach(b => {
-            if(b.id !== 'removeImage') b.classList.remove('active');
-        });
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
         currentActiveTab = e.target.getAttribute('data-map');
         renderActiveTabPreview();
@@ -70,28 +68,31 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    const targetSize = 2048;
-    canvas.width = targetSize;
-    canvas.height = targetSize;
+    // Usar la resolución real o adaptada conservando proporciones
+    const targetWidth = loadedImage.naturalWidth || 2048;
+    const targetHeight = loadedImage.naturalHeight || 2048;
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.clearRect(0, 0, targetSize, targetSize);
-    ctx.drawImage(loadedImage, 0, 0, targetSize, targetSize);
+    ctx.clearRect(0, 0, targetWidth, targetHeight);
+    ctx.drawImage(loadedImage, 0, 0, targetWidth, targetHeight);
 
-    let imgData = ctx.getImageData(0, 0, targetSize, targetSize);
+    let imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
     let data = imgData.data;
 
     let backupData = new Uint8ClampedArray(data);
-    for (let y = 10; y < targetSize - 10; y++) {
-        for (let x = 10; x < targetSize - 10; x++) {
-            let idx = (y * targetSize + x) * 4;
+    for (let y = 10; y < targetHeight - 10; y++) {
+        for (let x = 10; x < targetWidth - 10; x++) {
+            let idx = (y * targetWidth + x) * 4;
             let r = backupData[idx], g = backupData[idx+1], b = backupData[idx+2];
             let lum = (r * 0.299 + g * 0.587 + b * 0.114);
             
             if (lum > 140 && lum < 240) {
-                let sampleX = (x + 120 < targetSize) ? x + 120 : x - 120;
-                let sampleIdx = (y * targetSize + sampleX) * 4;
+                let sampleX = (x + 120 < targetWidth) ? x + 120 : x - 120;
+                let sampleIdx = (y * targetWidth + sampleX) * 4;
                 
                 data[idx] = backupData[sampleIdx];
                 data[idx+1] = backupData[sampleIdx+1];
@@ -104,13 +105,13 @@ async function generateMapsPreview() {
     let weight = 1.2;
     let centerWeight = 1.0 + (4 * weight);
 
-    for (let y = 1; y < targetSize - 1; y++) {
-        for (let x = 1; x < targetSize - 1; x++) {
-            let idx = (y * targetSize + x) * 4;
-            let upIdx = ((y - 1) * targetSize + x) * 4;
-            let downIdx = ((y + 1) * targetSize + x) * 4;
-            let leftIdx = (y * targetSize + (x - 1)) * 4;
-            let rightIdx = (y * targetSize + (x + 1)) * 4;
+    for (let y = 1; y < targetHeight - 1; y++) {
+        for (let x = 1; x < targetWidth - 1; x++) {
+            let idx = (y * targetWidth + x) * 4;
+            let upIdx = ((y - 1) * targetWidth + x) * 4;
+            let downIdx = ((y + 1) * targetWidth + x) * 4;
+            let leftIdx = (y * targetWidth + (x - 1)) * 4;
+            let rightIdx = (y * targetWidth + (x + 1)) * 4;
 
             for (let c = 0; c < 3; c++) {
                 let newVal = centerWeight * data[idx + c] 
@@ -126,11 +127,12 @@ async function generateMapsPreview() {
     ctx.putImageData(imgData, 0, 0);
     processedMaps.basecolor = canvas.toDataURL('image/png');
 
+    // Roughness
     const rCanvas = document.createElement('canvas');
-    rCanvas.width = targetSize; rCanvas.height = targetSize;
+    rCanvas.width = targetWidth; rCanvas.height = targetHeight;
     const rCtx = rCanvas.getContext('2d');
     rCtx.putImageData(imgData, 0, 0);
-    const rData = rCtx.getImageData(0, 0, targetSize, targetSize);
+    const rData = rCtx.getImageData(0, 0, targetWidth, targetHeight);
     for (let i = 0; i < rData.data.length; i += 4) {
         let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
         let rough = 255 - gray;
@@ -139,36 +141,37 @@ async function generateMapsPreview() {
     rCtx.putImageData(rData, 0, 0);
     processedMaps.roughness = rCanvas.toDataURL('image/png');
 
+    // Height / AO
     const hCanvas = document.createElement('canvas');
-    hCanvas.width = targetSize; hCanvas.height = targetSize;
+    hCanvas.width = targetWidth; hCanvas.height = targetHeight;
     const hCtx = hCanvas.getContext('2d');
     hCtx.putImageData(imgData, 0, 0);
-    const hData = hCtx.getImageData(0, 0, targetSize, targetSize);
+    const hData = hCtx.getImageData(0, 0, targetWidth, targetHeight);
     for (let i = 0; i < hData.data.length; i += 4) {
         let gray = (hData.data[i] * 0.299 + hData.data[i+1] * 0.587 + hData.data[i+2] * 0.114);
         hData.data[i] = gray; hData.data[i+1] = gray; hData.data[i+2] = gray;
     }
     hCtx.putImageData(hData, 0, 0);
     processedMaps.height = hCanvas.toDataURL('image/png');
-
     processedMaps.ao = processedMaps.height;
 
+    // Normal Map
     const nCanvas = document.createElement('canvas');
-    nCanvas.width = targetSize; nCanvas.height = targetSize;
+    nCanvas.width = targetWidth; nCanvas.height = targetHeight;
     const nCtx = nCanvas.getContext('2d');
     nCtx.putImageData(imgData, 0, 0);
-    const nPixels = nCtx.getImageData(0, 0, targetSize, targetSize).data;
-    const outNormal = nCtx.createImageData(targetSize, targetSize);
+    const nPixels = nCtx.getImageData(0, 0, targetWidth, targetHeight).data;
+    const outNormal = nCtx.createImageData(targetWidth, targetHeight);
     const outData = outNormal.data;
     const strength = 3.5;
 
-    for (let y = 0; y < targetSize; y++) {
-        for (let x = 0; x < targetSize; x++) {
-            let idx = (y * targetSize + x) * 4;
-            let xLeft = (x > 0 ? (y * targetSize + (x - 1)) : idx) * 4;
-            let xRight = (x < targetSize - 1 ? (y * targetSize + (x + 1)) : idx) * 4;
-            let yUp = (y > 0 ? ((y - 1) * targetSize + x) : idx) * 4;
-            let yDown = (y < targetSize - 1 ? ((y + 1) * targetSize + x) : idx) * 4;
+    for (let y = 0; y < targetHeight; y++) {
+        for (let x = 0; x < targetWidth; x++) {
+            let idx = (y * targetWidth + x) * 4;
+            let xLeft = (x > 0 ? (y * targetWidth + (x - 1)) : idx) * 4;
+            let xRight = (x < targetWidth - 1 ? (y * targetWidth + (x + 1)) : idx) * 4;
+            let yUp = (y > 0 ? ((y - 1) * targetWidth + x) : idx) * 4;
+            let yDown = (y < targetHeight - 1 ? ((y + 1) * targetWidth + x) : idx) * 4;
 
             let dzdx = (nPixels[xRight] - nPixels[xLeft]) / 255.0 * strength;
             let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
@@ -183,6 +186,7 @@ async function generateMapsPreview() {
     nCtx.putImageData(outNormal, 0, 0);
     processedMaps.normal = nCanvas.toDataURL('image/png');
 
+    // HDRI Panorama
     const hdriCanvas = document.createElement('canvas');
     hdriCanvas.width = 4096; hdriCanvas.height = 2048;
     const hdriCtx = hdriCanvas.getContext('2d');
@@ -200,10 +204,10 @@ function renderActiveTabPreview() {
     if (!processedMaps[currentActiveTab]) return;
     const img = new Image();
     img.onload = () => {
-        canvas.width = 2048;
-        canvas.height = 2048;
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, 2048, 2048);
+        ctx.drawImage(img, 0, 0);
     };
     img.src = processedMaps[currentActiveTab];
 }
