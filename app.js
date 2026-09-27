@@ -69,13 +69,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Procesando sin estirar y limpiando marcas...';
+    loadingText.textContent = 'Aplicando borrado profundo de marcas de agua...';
 
-    // 1. CALCULAR PROPORCIÓN REAL (Evita el efecto estirado)
+    // 1. Respetar proporción original exacta
     let origWidth = loadedImage.width;
     let origHeight = loadedImage.height;
-    
-    // Escalar manteniendo la proporción natural (máximo 2048px en su lado mayor)
     let maxDimension = 2048;
     let width = origWidth;
     let height = origHeight;
@@ -93,7 +91,6 @@ async function generateMapsPreview() {
     canvas.width = width;
     canvas.height = height;
 
-    // Dibujar imagen original respetando proporciones exactas
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, width, height);
@@ -102,33 +99,55 @@ async function generateMapsPreview() {
     let imgData = ctx.getImageData(0, 0, width, height);
     let data = imgData.data;
 
-    // 2. ELIMINACIÓN INTELIGENTE DE MARCAS DE AGUA (Tipo 123RF / Rombos semi-transparentes)
-    // Analiza bloques para detectar patrones repetitivos claros de marcas de agua
-    for (let y = 2; y < height - 2; y++) {
-        for (let x = 2; x < width - 2; x++) {
+    // 2. BORRADO PROFUNDO DE MARCAS DE AGUA (Eliminación de patrones de stock 123RF)
+    // Las marcas de agua alteran localmente la luminancia en forma de sello circular/rombo.
+    // Creamos una copia temporal para analizar los gradientes limpios del entorno.
+    let tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width; tempCanvas.height = height;
+    let tempCtx = tempCanvas.getContext('2d');
+    tempCtx.putImageData(imgData, 0, 0);
+    let cleanData = tempCtx.getImageData(0, 0, width, height).data;
+
+    // Detectar y neutralizar los sellos de agua mediante suavizado adaptativo en zonas de baja frecuencia con desvío de brillo
+    for (let y = 10; y < height - 10; y++) {
+        for (let x = 10; x < width - 10; x++) {
             let idx = (y * width + x) * 4;
             let r = data[idx], g = data[idx+1], b = data[idx+2];
             
-            // Las marcas de agua de stock suelen desviar el color hacia un tono grisáceo/blanquecino translúcido
-            let avg = (r + g + b) / 3;
-            let variance = Math.abs(r - avg) + Math.abs(g - avg) + Math.abs(b - avg);
+            // Analizar si el píxel pertenece a un sello translúcido (baja saturación con contraste anómalo respecto al fondo de piedra)
+            let brightness = (r * 0.299 + g * 0.587 + b * 0.114);
             
-            // Si detecta baja saturación con brillo anómalo típico de logotipos superpuestos
-            if (variance < 8 && avg > 170 && avg < 240) {
-                // Tomar muestras de los píxeles circundantes limpios (arriba y abajo) para rellenar
-                let upIdx = ((y - 3) * width + x) * 4;
-                let downIdx = ((y + 3) * width + x) * 4;
-                
-                data[idx] = (data[upIdx] + data[downIdx]) / 2;
-                data[idx+1] = (data[upIdx+1] + data[downIdx+1]) / 2;
-                data[idx+2] = (data[upIdx+2] + data[downIdx+2]) / 2;
+            // Comprobación de patrones típicos de marcas de agua (marcas circulares/texto claro superpuesto)
+            // Calculamos la desviación local respecto a un radio más amplio
+            let sampleSumR = 0, sampleSumG = 0, sampleSumB = 0, count = 0;
+            for (let dy = -8; dy <= 8; dy += 4) {
+                for (let dx = -8; dx <= 8; dx += 4) {
+                    if (dx === 0 && dy === 0) continue;
+                    let nIdx = ((y + dy) * width + (x + dx)) * 4;
+                    sampleSumR += cleanData[nIdx];
+                    sampleSumG += cleanData[nIdx+1];
+                    sampleSumB += cleanData[nIdx+2];
+                    count++;
+                }
+            }
+            let avgR = sampleSumR / count;
+            let avgG = sampleSumG / count;
+            let avgB = sampleSumB / count;
+
+            // Si el píxel actual rompe drásticamente con la textura circundante de forma artificial (típico del sello de agua)
+            let diff = Math.abs(r - avgR) + Math.abs(g - avgG) + Math.abs(b - avgB);
+            if (diff > 18 && diff < 65 && brightness > 140) {
+                // Inpainting / Clonado local suave desde los bordes limpios
+                data[idx] = avgR;
+                data[idx+1] = avgG;
+                data[idx+2] = avgB;
             }
         }
     }
 
-    // 3. NITIDEZ Y REALCE (High-Pass para fotos borrosas)
+    // 3. NITIDEZ Y REALCE (High-Pass para rescatar la textura de las grietas)
     let sharpData = new Uint8ClampedArray(data);
-    let weight = 1.2;
+    let weight = 1.3;
     let centerWeight = 1.0 + (4 * weight);
 
     for (let y = 1; y < height - 1; y++) {
@@ -183,7 +202,7 @@ async function generateMapsPreview() {
     // 6. Ambient Occlusion (AO)
     processedMaps.ao = processedMaps.height;
 
-    // 7. Normal Map HD (Respetando proporciones)
+    // 7. Normal Map HD
     const nCanvas = document.createElement('canvas');
     nCanvas.width = width; nCanvas.height = height;
     const nCtx = nCanvas.getContext('2d');
