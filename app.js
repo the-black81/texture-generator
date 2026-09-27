@@ -69,56 +69,75 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Magia HD: Reescalando y limpiando marcas...';
+    loadingText.textContent = 'Procesando sin estirar y limpiando marcas...';
 
-    // Definir resolución de alta calidad (2K)
-    const targetSize = Math.max(loadedImage.width, loadedImage.height, 2048);
-    const size = targetSize > 4096 ? 4096 : targetSize;
+    // 1. CALCULAR PROPORCIÓN REAL (Evita el efecto estirado)
+    let origWidth = loadedImage.width;
+    let origHeight = loadedImage.height;
+    
+    // Escalar manteniendo la proporción natural (máximo 2048px en su lado mayor)
+    let maxDimension = 2048;
+    let width = origWidth;
+    let height = origHeight;
 
-    canvas.width = size;
-    canvas.height = size;
-
-    // 1. Dibujar imagen reescalada suavemente a alta resolución
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.clearRect(0, 0, size, size);
-    ctx.drawImage(loadedImage, 0, 0, size, size);
-
-    // Obtener píxeles para aplicar filtros de mejora mágica y eliminación de marcas
-    let imgData = ctx.getImageData(0, 0, size, size);
-    let data = imgData.data;
-
-    // PASO MÁGICO 1: Filtro de Eliminación de Marcas de Agua / Patrones / Rombos
-    // Detecta variaciones anómalas de alta opacidad/contraste en patrones repetidos (como marcas de agua diagonales)
-    for (let i = 0; i < data.length; i += 4) {
-        let r = data[i], g = data[i+1], b = data[i+2];
-        let brightness = (r + g + b) / 3;
-        
-        // Si detecta elementos translúcidos típicos de marcas de agua (muy claros u oscuros aislados con baja saturación)
-        let maxChannel = Math.max(r, g, b);
-        let minChannel = Math.min(r, g, b);
-        let saturation = maxChannel - minChannel;
-        
-        if (saturation < 12 && (brightness > 235 || brightness < 20)) {
-            // Difuminar con vecinos cercanos automáticamente (Inpainting básico)
-            data[i] = Math.min(255, r + 15);
-            data[i+1] = Math.min(255, g + 15);
-            data[i+2] = Math.min(255, b + 15);
+    if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+        } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
         }
     }
 
-    // PASO MÁGICO 2: Algoritmo de Nitidez Extrema (High-Pass Sharpening) para rescatar fotos borrosas
+    canvas.width = width;
+    canvas.height = height;
+
+    // Dibujar imagen original respetando proporciones exactas
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(loadedImage, 0, 0, width, height);
+
+    let imgData = ctx.getImageData(0, 0, width, height);
+    let data = imgData.data;
+
+    // 2. ELIMINACIÓN INTELIGENTE DE MARCAS DE AGUA (Tipo 123RF / Rombos semi-transparentes)
+    // Analiza bloques para detectar patrones repetitivos claros de marcas de agua
+    for (let y = 2; y < height - 2; y++) {
+        for (let x = 2; x < width - 2; x++) {
+            let idx = (y * width + x) * 4;
+            let r = data[idx], g = data[idx+1], b = data[idx+2];
+            
+            // Las marcas de agua de stock suelen desviar el color hacia un tono grisáceo/blanquecino translúcido
+            let avg = (r + g + b) / 3;
+            let variance = Math.abs(r - avg) + Math.abs(g - avg) + Math.abs(b - avg);
+            
+            // Si detecta baja saturación con brillo anómalo típico de logotipos superpuestos
+            if (variance < 8 && avg > 170 && avg < 240) {
+                // Tomar muestras de los píxeles circundantes limpios (arriba y abajo) para rellenar
+                let upIdx = ((y - 3) * width + x) * 4;
+                let downIdx = ((y + 3) * width + x) * 4;
+                
+                data[idx] = (data[upIdx] + data[downIdx]) / 2;
+                data[idx+1] = (data[upIdx+1] + data[downIdx+1]) / 2;
+                data[idx+2] = (data[upIdx+2] + data[downIdx+2]) / 2;
+            }
+        }
+    }
+
+    // 3. NITIDEZ Y REALCE (High-Pass para fotos borrosas)
     let sharpData = new Uint8ClampedArray(data);
-    let weight = 1.4; // Factor de realce de nitidez
+    let weight = 1.2;
     let centerWeight = 1.0 + (4 * weight);
 
-    for (let y = 1; y < size - 1; y++) {
-        for (let x = 1; x < size - 1; x++) {
-            let idx = (y * size + x) * 4;
-            let upIdx = ((y - 1) * size + x) * 4;
-            let downIdx = ((y + 1) * size + x) * 4;
-            let leftIdx = (y * size + (x - 1)) * 4;
-            let rightIdx = (y * size + (x + 1)) * 4;
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            let idx = (y * width + x) * 4;
+            let upIdx = ((y - 1) * width + x) * 4;
+            let downIdx = ((y + 1) * width + x) * 4;
+            let leftIdx = (y * width + (x - 1)) * 4;
+            let rightIdx = (y * width + (x + 1)) * 4;
 
             for (let c = 0; c < 3; c++) {
                 let newVal = centerWeight * data[idx + c] 
@@ -128,61 +147,59 @@ async function generateMapsPreview() {
         }
     }
 
-    // Volcar datos mejorados al canvas principal para el Base Color
     for (let i = 0; i < data.length; i++) {
         data[i] = sharpData[i];
     }
     ctx.putImageData(imgData, 0, 0);
-    processedMaps.basecolor = canvas.toDataURL('image/png'); // PNG sin pérdida para máxima calidad
+    processedMaps.basecolor = canvas.toDataURL('image/png');
 
-    // 2. Roughness Map (Rugosidad optimizada y limpia)
-    const roughnessCanvas = document.createElement('canvas');
-    roughnessCanvas.width = size; roughnessCanvas.height = size;
-    const rCtx = roughnessCanvas.getContext('2d');
+    // 4. Roughness Map
+    const rCanvas = document.createElement('canvas');
+    rCanvas.width = width; rCanvas.height = height;
+    const rCtx = rCanvas.getContext('2d');
     rCtx.putImageData(imgData, 0, 0);
-    const rData = rCtx.getImageData(0, 0, size, size);
+    const rData = rCtx.getImageData(0, 0, width, height);
     for (let i = 0; i < rData.data.length; i += 4) {
         let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
-        let rough = 255 - gray; // Invertir para rugosidad física
+        let rough = 255 - gray;
         rData.data[i] = rough; rData.data[i+1] = rough; rData.data[i+2] = rough;
     }
     rCtx.putImageData(rData, 0, 0);
-    processedMaps.roughness = roughnessCanvas.toDataURL('image/png');
+    processedMaps.roughness = rCanvas.toDataURL('image/png');
 
-    // 3. Height / Displacement Map
-    const heightCanvas = document.createElement('canvas');
-    heightCanvas.width = size; heightCanvas.height = size;
-    const hCtx = heightCanvas.getContext('2d');
+    // 5. Height / Displacement Map
+    const hCanvas = document.createElement('canvas');
+    hCanvas.width = width; hCanvas.height = height;
+    const hCtx = hCanvas.getContext('2d');
     hCtx.putImageData(imgData, 0, 0);
-    const hData = hCtx.getImageData(0, 0, size, size);
+    const hData = hCtx.getImageData(0, 0, width, height);
     for (let i = 0; i < hData.data.length; i += 4) {
         let gray = (hData.data[i] * 0.299 + hData.data[i+1] * 0.587 + hData.data[i+2] * 0.114);
         hData.data[i] = gray; hData.data[i+1] = gray; hData.data[i+2] = gray;
     }
     hCtx.putImageData(hData, 0, 0);
-    processedMaps.height = heightCanvas.toDataURL('image/png');
+    processedMaps.height = hCanvas.toDataURL('image/png');
 
-    // 4. Ambient Occlusion (AO)
+    // 6. Ambient Occlusion (AO)
     processedMaps.ao = processedMaps.height;
 
-    // 5. Normal Map HD (Relieve ultradefinido basado en la imagen ya mejorada)
-    const normalCanvas = document.createElement('canvas');
-    normalCanvas.width = size; normalCanvas.height = size;
-    const nCtx = normalCanvas.getContext('2d');
+    // 7. Normal Map HD (Respetando proporciones)
+    const nCanvas = document.createElement('canvas');
+    nCanvas.width = width; nCanvas.height = height;
+    const nCtx = nCanvas.getContext('2d');
     nCtx.putImageData(imgData, 0, 0);
-    const nImgData = nCtx.getImageData(0, 0, size, size);
-    const nPixels = nImgData.data;
-    const outNormal = nCtx.createImageData(size, size);
+    const nPixels = nCtx.getImageData(0, 0, width, height).data;
+    const outNormal = nCtx.createImageData(width, height);
     const outData = outNormal.data;
-    const strength = 4.0; // Relieve acentuado para fotos de baja calidad
+    const strength = 3.5;
 
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            let idx = (y * size + x) * 4;
-            let xLeft = (x > 0 ? (y * size + (x - 1)) : idx) * 4;
-            let xRight = (x < size - 1 ? (y * size + (x + 1)) : idx) * 4;
-            let yUp = (y > 0 ? ((y - 1) * size + x) : idx) * 4;
-            let yDown = (y < size - 1 ? ((y + 1) * size + x) : idx) * 4;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let idx = (y * width + x) * 4;
+            let xLeft = (x > 0 ? (y * width + (x - 1)) : idx) * 4;
+            let xRight = (x < width - 1 ? (y * width + (x + 1)) : idx) * 4;
+            let yUp = (y > 0 ? ((y - 1) * width + x) : idx) * 4;
+            let yDown = (y < height - 1 ? ((y + 1) * width + x) : idx) * 4;
 
             let dzdx = (nPixels[xRight] - nPixels[xLeft]) / 255.0 * strength;
             let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
@@ -195,9 +212,9 @@ async function generateMapsPreview() {
         }
     }
     nCtx.putImageData(outNormal, 0, 0);
-    processedMaps.normal = normalCanvas.toDataURL('image/png');
+    processedMaps.normal = nCanvas.toDataURL('image/png');
 
-    // 6. HDRI / Panorama Equirectangular HD
+    // 8. HDRI Panorama
     const hdriCanvas = document.createElement('canvas');
     hdriCanvas.width = 4096; hdriCanvas.height = 2048;
     const hdriCtx = hdriCanvas.getContext('2d');
@@ -225,11 +242,10 @@ function renderActiveTabPreview() {
     img.src = processedMaps[currentActiveTab];
 }
 
-// Botón de empaquetar y descargar ZIP en alta calidad PNG
 processBtn.addEventListener('click', async () => {
     const assetName = assetNameInput.value.trim() || 'material_hd';
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Empaquetando pack ZIP en máxima calidad...';
+    loadingText.textContent = 'Empaquetando pack ZIP...';
 
     const zip = new JSZip();
     const folder = zip.folder(assetName);
@@ -268,8 +284,6 @@ function dataURLtoBlob(dataurl) {
     const bstr = atob(arr[1]);
     let n = bstr.length;
     const u8arr = new Uint8Array(n);
-    while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-    }
+    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
     return new Blob([u8arr], { type: mime });
 }
