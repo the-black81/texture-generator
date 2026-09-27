@@ -3,77 +3,239 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Texture & HDRI Generator Studio (Magic HD)</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Librería JSZip para generar el archivo ZIP en el navegador -->
+    <title>Generador de Mapas PBR HD</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --accent: #e67e22;
+            --text-color: #f0f0f0;
+            --border-color: #2c2c2c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: var(--panel-bg);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: var(--accent);
+            text-align: center;
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s;
+            background: #181818;
+            margin-bottom: 20px;
+        }
+
+        .drop-zone:hover {
+            border-color: var(--accent);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Visor de previsualización 1:1 estricto */
+        .preview-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        #renderCanvas, #imagePreview {
+            width: 100% !important;
+            max-width: 450px !important;
+            height: auto !important;
+            aspect-ratio: 1 / 1 !important;
+            object-fit: contain !important;
+            background: #000;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            display: block;
+            margin: 0 auto 15px auto;
+        }
+
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            background: #2a2a2a;
+            border: none;
+            color: var(--text-color);
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+
+        .tab-btn.active {
+            background: var(--accent);
+            font-weight: bold;
+        }
+
+        .settings-group {
+            background: #151515;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .settings-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            background: #222;
+            border: 1px solid var(--border-color);
+            color: #fff;
+            border-radius: 4px;
+            box-sizing: border-box;
+            margin-top: 5px;
+        }
+
+        .checkboxes {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-primary:disabled {
+            background: #444;
+            cursor: not-allowed;
+        }
+
+        .btn-primary:not(:disabled):hover {
+            opacity: 0.9;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            color: white;
+            font-size: 18px;
+        }
+    </style>
+    <!-- Librería JSZip para empaquetar el ZIP -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Panel de Control / Configuración -->
-        <header>
-            <h1>Texture & HDRI Generator <span class="hd-badge">Magic HD / 2K</span></h1>
-            <p>Mejora inteligente de baja calidad, eliminación de marcas y conversión PBR para Blender.</p>
-        </header>
 
-        <main class="workspace">
-            <!-- Columna Izquierda: Controles -->
-            <section class="control-panel">
-                <div class="input-group">
-                    <label for="assetName">Nombre del Asset / Material:</label>
-                    <input type="text" id="assetName" placeholder="Ej: textura_magica_01" value="material_hd_01">
-                </div>
+    <div class="container">
+        <h2>Generador de Mapas PBR HD</h2>
+        
+        <!-- Zona de Carga -->
+        <div id="dropZone" class="drop-zone">
+            <div id="dropContent">
+                <p>📂 Arrastra tu textura aquí o <strong>haz clic para seleccionar</strong></p>
+                <p style="font-size: 12px; color: #888;">(Compatible con JPG, PNG en cualquier proporción)</p>
+            </div>
+            <input type="file" id="fileInput" accept="image/*" class="hidden">
+        </div>
 
-                <div class="drop-zone" id="dropZone">
-                    <input type="file" id="fileInput" accept="image/*" hidden>
-                    <div class="drop-content" id="dropContent">
-                        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                        <span>Sube tu foto borrosa o <strong>haz clic aquí</strong></span>
-                        <small>El sistema aplicará mejora mágica de nitidez y limpieza automática</small>
-                    </div>
-                    <div class="preview-container hidden" id="previewContainer">
-                        <img id="imagePreview" alt="Vista previa">
-                        <button id="removeImage" title="Cambiar imagen">×</button>
-                    </div>
-                </div>
+        <!-- Contenedor de Previsualización -->
+        <div id="previewContainer" class="preview-container hidden">
+            <div class="tabs">
+                <button class="tab-btn active" data-map="basecolor">Base Color</button>
+                <button class="tab-btn" data-map="roughness">Roughness</button>
+                <button class="tab-btn" data-map="normal">Normal Map</button>
+                <button class="tab-btn" data-map="height">Height</button>
+                <button class="tab-btn" data-map="ao">Ambient Occlusion</button>
+                <button class="tab-btn" data-map="hdri">HDRI (Env)</button>
+            </div>
 
-                <div class="options-group">
-                    <h3>Generar Mapas PBR (PNG Sin Pérdida)</h3>
-                    <label class="checkbox-label"><input type="checkbox" id="genBaseColor" checked> Base Color (Albedo Mejorado)</label>
-                    <label class="checkbox-label"><input type="checkbox" id="genRoughness" checked> Roughness (Rugosidad)</label>
-                    <label class="checkbox-label"><input type="checkbox" id="genNormal" checked> Normal Map (Relieve HD)</label>
-                    <label class="checkbox-label"><input type="checkbox" id="genHeight" checked> Height / Displacement</label>
-                    <label class="checkbox-label"><input type="checkbox" id="genAO" checked> Ambient Occlusion</label>
-                </div>
+            <!-- Canvas cuadrado con aspecto 1:1 blindado por CSS -->
+            <canvas id="renderCanvas"></canvas>
+            
+            <button id="removeImage" class="tab-btn" style="background: #c0392b; margin-top: 5px;">Cambiar Textura</button>
+        </div>
 
-                <div class="options-group">
-                    <h3>Entorno y Fondo</h3>
-                    <label class="checkbox-label"><input type="checkbox" id="genHDRI" checked> Generar HDRI / Panorama (Equirectangular)</label>
-                </div>
+        <!-- Ajustes y Exportación -->
+        <div class="settings-group">
+            <label>Nombre del Asset:
+                <input type="text" id="assetName" value="WhiteGravel02">
+            </label>
+            
+            <label style="margin-top: 15px;">Mapas a incluir en el ZIP:</label>
+            <div class="checkboxes">
+                <label><input type="checkbox" id="genBaseColor" checked> BaseColor</label>
+                <label><input type="checkbox" id="genRoughness" checked> Roughness</label>
+                <label><input type="checkbox" id="genNormal" checked> Normal</label>
+                <label><input type="checkbox" id="genHeight" checked> Height</label>
+                <label><input type="checkbox" id="genAO" checked> AO</label>
+                <label><input type="checkbox" id="genHDRI" checked> HDRI</label>
+            </div>
+        </div>
 
-                <button id="processBtn" class="primary-btn" disabled>Generar Pack HD (.zip)</button>
-            </section>
+        <button id="processBtn" class="btn-primary" disabled>Generar y Descargar Pack ZIP</button>
+    </div>
 
-            <!-- Columna Derecha: Vista Previa en tiempo real -->
-            <section class="preview-panel">
-                <h2>Previsualización Mágica en Alta Definición</h2>
-                <div class="tabs">
-                    <button class="tab-btn active" data-map="basecolor">Base Color</button>
-                    <button class="tab-btn" data-map="roughness">Roughness</button>
-                    <button class="tab-btn" data-map="normal">Normal</button>
-                    <button class="tab-btn" data-map="height">Height</button>
-                    <button class="tab-btn" data-map="ao">AO</button>
-                    <button class="tab-btn" data-map="hdri">HDRI Panorama</button>
-                </div>
-                <div class="canvas-viewer">
-                    <canvas id="renderCanvas"></canvas>
-                    <div id="loadingOverlay" class="hidden">
-                        <div class="spinner"></div>
-                        <span id="loadingText">Aplicando magia de nitidez y limpiando marcas...</span>
-                    </div>
-                </div>
-            </section>
-        </main>
+    <!-- Pantalla de Carga -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <p id="loadingText">Procesando...</p>
     </div>
 
     <script src="app.js"></script>
