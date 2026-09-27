@@ -67,17 +67,26 @@
             margin-bottom: 20px;
         }
 
-        /* Canvas adaptativo que respeta la proporción real de la textura sin estirarse */
-        #renderCanvas {
-            width: 100% !important;
-            max-width: 550px !important;
-            height: auto !important;
-            object-fit: contain !important;
+        /* CONTENEDOR CUADRADO FIJO PARA QUE NO SE DEFORME NINGUNA TEXTURA */
+        .canvas-wrapper {
+            width: 100%;
+            max-width: 450px;
+            aspect-ratio: 1 / 1;
             background: #000;
             border-radius: 6px;
             border: 1px solid var(--border-color);
-            display: block;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
             margin: 0 auto 15px auto;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Mantiene la proporción real sin estirar */
+            display: block;
         }
 
         .tabs {
@@ -203,7 +212,10 @@
                 <button class="tab-btn" data-map="hdri">HDRI (Env)</button>
             </div>
 
-            <canvas id="renderCanvas"></canvas>
+            <!-- CONTENEDOR ENMARCADO QUE EVITA EL ESTIRAMIENTO -->
+            <div class="canvas-wrapper">
+                <canvas id="renderCanvas"></canvas>
+            </div>
             
             <button id="removeImage" class="tab-btn" style="background: #c0392b; margin-top: 5px;">Cambiar Textura</button>
         </div>
