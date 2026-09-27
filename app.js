@@ -14,10 +14,7 @@ let loadedImage = null;
 let currentActiveTab = 'basecolor';
 let processedMaps = {};
 
-// Forzar apertura del selector al hacer clic en la zona
-dropZone.addEventListener('click', () => {
-    fileInput.click();
-});
+dropZone.addEventListener('click', () => fileInput.click());
 
 dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -63,6 +60,10 @@ function handleFile(file) {
         return;
     }
 
+    // Auto-componer el nombre del asset basado en el archivo subido sin extensión
+    const cleanName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    assetNameInput.value = cleanName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
     const reader = new FileReader();
     reader.onload = (event) => {
         const img = new Image();
@@ -73,9 +74,6 @@ function handleFile(file) {
             thumbnailContainer.classList.remove('hidden');
             processBtn.disabled = false;
             generateMapsPreview();
-        };
-        img.onerror = () => {
-            alert('Error al cargar la imagen.');
         };
         img.src = event.target.result;
     };
@@ -94,72 +92,35 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function generateMapsPreview() {
     if (!loadedImage) return;
     loadingOverlay.classList.remove('hidden');
-    loadingText.textContent = 'Procesando textura y generando mapas PBR...';
+    loadingText.textContent = 'Generando mapas PBR en alta definición...';
 
-    const targetWidth = loadedImage.naturalWidth || 2048;
-    const targetHeight = loadedImage.naturalHeight || 2048;
+    // Forzar siempre formato cuadrado perfecto (ej: 2048x2048)
+    const size = Math.max(loadedImage.naturalWidth, loadedImage.naturalHeight, 2048);
 
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
+    canvas.width = size;
+    canvas.height = size;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.clearRect(0, 0, targetWidth, targetHeight);
-    ctx.drawImage(loadedImage, 0, 0, targetWidth, targetHeight);
+    ctx.clearRect(0, 0, size, size);
+    
+    // Dibujar manteniendo proporción centrada si la imagen original no era 100% cuadrada
+    let w = loadedImage.naturalWidth;
+    let h = loadedImage.naturalHeight;
+    let ox = (size - w) / 2;
+    let oy = (size - h) / 2;
+    ctx.drawImage(loadedImage, ox, oy, w, h);
 
-    let imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+    let imgData = ctx.getImageData(0, 0, size, size);
     let data = imgData.data;
-
-    let backupData = new Uint8ClampedArray(data);
-    for (let y = 10; y < targetHeight - 10; y++) {
-        for (let x = 10; x < targetWidth - 10; x++) {
-            let idx = (y * targetWidth + x) * 4;
-            let r = backupData[idx], g = backupData[idx+1], b = backupData[idx+2];
-            let lum = (r * 0.299 + g * 0.587 + b * 0.114);
-            
-            if (lum > 140 && lum < 240) {
-                let sampleX = (x + 120 < targetWidth) ? x + 120 : x - 120;
-                let sampleIdx = (y * targetWidth + sampleX) * 4;
-                
-                data[idx] = backupData[sampleIdx];
-                data[idx+1] = backupData[sampleIdx+1];
-                data[idx+2] = backupData[sampleIdx+2];
-            }
-        }
-    }
-
-    let sharpData = new Uint8ClampedArray(data);
-    let weight = 1.2;
-    let centerWeight = 1.0 + (4 * weight);
-
-    for (let y = 1; y < targetHeight - 1; y++) {
-        for (let x = 1; x < targetWidth - 1; x++) {
-            let idx = (y * targetWidth + x) * 4;
-            let upIdx = ((y - 1) * targetWidth + x) * 4;
-            let downIdx = ((y + 1) * targetWidth + x) * 4;
-            let leftIdx = (y * targetWidth + (x - 1)) * 4;
-            let rightIdx = (y * targetWidth + (x + 1)) * 4;
-
-            for (let c = 0; c < 3; c++) {
-                let newVal = centerWeight * data[idx + c] 
-                             - weight * (data[upIdx + c] + data[downIdx + c] + data[leftIdx + c] + data[rightIdx + c]);
-                sharpData[idx + c] = Math.min(255, Math.max(0, newVal));
-            }
-        }
-    }
-
-    for (let i = 0; i < data.length; i++) {
-        data[i] = sharpData[i];
-    }
-    ctx.putImageData(imgData, 0, 0);
     processedMaps.basecolor = canvas.toDataURL('image/png');
 
     // Roughness
     const rCanvas = document.createElement('canvas');
-    rCanvas.width = targetWidth; rCanvas.height = targetHeight;
+    rCanvas.width = size; rCanvas.height = size;
     const rCtx = rCanvas.getContext('2d');
     rCtx.putImageData(imgData, 0, 0);
-    const rData = rCtx.getImageData(0, 0, targetWidth, targetHeight);
+    const rData = rCtx.getImageData(0, 0, size, size);
     for (let i = 0; i < rData.data.length; i += 4) {
         let gray = (rData.data[i] * 0.299 + rData.data[i+1] * 0.587 + rData.data[i+2] * 0.114);
         let rough = 255 - gray;
@@ -170,10 +131,10 @@ async function generateMapsPreview() {
 
     // Height / AO
     const hCanvas = document.createElement('canvas');
-    hCanvas.width = targetWidth; hCanvas.height = targetHeight;
+    hCanvas.width = size; hCanvas.height = size;
     const hCtx = hCanvas.getContext('2d');
     hCtx.putImageData(imgData, 0, 0);
-    const hData = hCtx.getImageData(0, 0, targetWidth, targetHeight);
+    const hData = hCtx.getImageData(0, 0, size, size);
     for (let i = 0; i < hData.data.length; i += 4) {
         let gray = (hData.data[i] * 0.299 + hData.data[i+1] * 0.587 + hData.data[i+2] * 0.114);
         hData.data[i] = gray; hData.data[i+1] = gray; hData.data[i+2] = gray;
@@ -184,21 +145,21 @@ async function generateMapsPreview() {
 
     // Normal Map
     const nCanvas = document.createElement('canvas');
-    nCanvas.width = targetWidth; nCanvas.height = targetHeight;
+    nCanvas.width = size; nCanvas.height = size;
     const nCtx = nCanvas.getContext('2d');
     nCtx.putImageData(imgData, 0, 0);
-    const nPixels = nCtx.getImageData(0, 0, targetWidth, targetHeight).data;
-    const outNormal = nCtx.createImageData(targetWidth, targetHeight);
+    const nPixels = nCtx.getImageData(0, 0, size, size).data;
+    const outNormal = nCtx.createImageData(size, size);
     const outData = outNormal.data;
     const strength = 3.5;
 
-    for (let y = 0; y < targetHeight; y++) {
-        for (let x = 0; x < targetWidth; x++) {
-            let idx = (y * targetWidth + x) * 4;
-            let xLeft = (x > 0 ? (y * targetWidth + (x - 1)) : idx) * 4;
-            let xRight = (x < targetWidth - 1 ? (y * targetWidth + (x + 1)) : idx) * 4;
-            let yUp = (y > 0 ? ((y - 1) * targetWidth + x) : idx) * 4;
-            let yDown = (y < targetHeight - 1 ? ((y + 1) * targetWidth + x) : idx) * 4;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            let idx = (y * size + x) * 4;
+            let xLeft = (x > 0 ? (y * size + (x - 1)) : idx) * 4;
+            let xRight = (x < size - 1 ? (y * size + (x + 1)) : idx) * 4;
+            let yUp = (y > 0 ? ((y - 1) * size + x) : idx) * 4;
+            let yDown = (y < size - 1 ? ((y + 1) * size + x) : idx) * 4;
 
             let dzdx = (nPixels[xRight] - nPixels[xLeft]) / 255.0 * strength;
             let dzdy = (nPixels[yDown] - nPixels[yUp]) / 255.0 * strength;
@@ -240,7 +201,7 @@ function renderActiveTabPreview() {
 }
 
 processBtn.addEventListener('click', async () => {
-    const assetName = assetNameInput.value.trim() || 'material_hd';
+    const assetName = assetNameInput.value.trim() || 'MaterialPro';
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Empaquetando pack ZIP...';
 
@@ -269,7 +230,7 @@ processBtn.addEventListener('click', async () => {
     const content = await zip.generateAsync({ type: 'blob' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(content);
-    link.download = `${assetName}_PBR_HD_Pack.zip`;
+    link.download = `${assetName}_PBR_Pack.zip`;
     link.click();
 
     loadingOverlay.classList.add('hidden');
