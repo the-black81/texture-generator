@@ -2,7 +2,6 @@ const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
 const dropContent = document.getElementById('dropContent');
 const previewContainer = document.getElementById('previewContainer');
-const imagePreview = document.getElementById('imagePreview');
 const removeImage = document.getElementById('removeImage');
 const processBtn = document.getElementById('processBtn');
 const assetNameInput = document.getElementById('assetName');
@@ -45,7 +44,6 @@ function handleFile(file) {
         const img = new Image();
         img.onload = () => {
             loadedImage = img;
-            imagePreview.src = event.target.result;
             dropContent.classList.add('hidden');
             previewContainer.classList.remove('hidden');
             processBtn.disabled = false;
@@ -59,7 +57,10 @@ function handleFile(file) {
 // Pestañas de previsualización
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        if(e.target.id === 'removeImage') return;
+        document.querySelectorAll('.tab-btn').forEach(b => {
+            if(b.id !== 'removeImage') b.classList.remove('active');
+        });
         e.target.classList.add('active');
         currentActiveTab = e.target.getAttribute('data-map');
         renderActiveTabPreview();
@@ -71,11 +72,10 @@ async function generateMapsPreview() {
     loadingOverlay.classList.remove('hidden');
     loadingText.textContent = 'Procesando textura y generando mapas PBR...';
 
-    // 1. GARANTIZAR PROPORCIÓN CUADRADA EXACTA (PBR estándar 1:1)
+    // 1. GARANTIZAR PROPORCIÓN CUADRADA EXACTA 1:1 (Máximo 2048px)
     let origWidth = loadedImage.width;
     let origHeight = loadedImage.height;
     let targetSize = Math.min(Math.max(origWidth, origHeight), 2048);
-    if (targetSize > 2048) targetSize = 2048;
 
     canvas.width = targetSize;
     canvas.height = targetSize;
@@ -84,7 +84,7 @@ async function generateMapsPreview() {
     ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, targetSize, targetSize);
 
-    // Si la imagen no es cuadrada, realizamos un recorte central automático para adaptarla sin deformar
+    // Recorte central automático si la imagen original no es cuadrada
     let sourceX = 0, sourceY = 0, sourceWidth = origWidth, sourceHeight = origHeight;
     if (origWidth > origHeight) {
         sourceWidth = origHeight;
